@@ -1,49 +1,81 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from db import query
 
 app = FastAPI()
 
-# 🔹 tráfico por puerto (líneas)
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------
+#   /ports/traffic
+# ---------------------------
 @app.get("/ports/traffic")
-def traffic(top: int = 10):
+def traffic(top: int = 10, hours: int = 2):
 
     q = f'''
     SELECT count("value")
     FROM port_requests
-    WHERE time > now() - 2h
+    WHERE time > now() - {hours}h
     GROUP BY time(5m), port
+    fill(0)
     '''
 
     result = query(q)
 
+    # 🔍 DEBUG: ver qué devuelve Influx realmente
+    print("DEBUG RESULT ITEMS:", list(result.items())[:3])
+
     data = []
 
-    for (tags, points) in result.items():
-        port = tags.get("port")
+    try:
+        for (tags, points) in result.items():
 
-        serie = []
-        total = 0
+            # 🔥 extracción correcta del puerto según tu Influx
+            # tags = ('port_requests', {'port': '1007'})
+            try:
+                port = tags[1].get("port", "unknown")
+            except:
+                port = "unknown"
 
-        for p in points:
-            serie.append({
-                "time": p["time"],
-                "value": p["count"]
+            serie = []
+            total = 0
+
+            for p in points:
+                value = p.get("count", 0)
+
+                serie.append({
+                    "time": p.get("time"),
+                    "value": value
+                })
+
+                total += value
+
+            data.append({
+                "port": port,
+                "total": total,
+                "data": serie
             })
-            total += p["count"]
 
-        data.append({
-            "port": port,
-            "total": total,
-            "data": serie
-        })
+    except Exception as e:
+        print("ERROR en traffic:", e)
+        return {"error": str(e)}
 
-    # ordenar y limitar top N
+    # ordenar top N
     data = sorted(data, key=lambda x: x["total"], reverse=True)[:top]
 
     return data
 
 
-# 🔹 top puertos
+# ---------------------------
+#   /ports/top
+# ---------------------------
 @app.get("/ports/top")
 def top_ports(n: int = 50):
 
@@ -57,19 +89,32 @@ def top_ports(n: int = 50):
     '''
 
     result = query(q)
-
     data = []
 
-    for (tags, points) in result.items():
-        data.append({
-            "port": tags.get("port"),
-            "count": points[0]["count"]
-        })
+    try:
+        for (tags, points) in result.items():
+
+            # misma estructura que en traffic()
+            try:
+                port = tags[1].get("port", "unknown")
+            except:
+                port = "unknown"
+
+            data.append({
+                "port": port,
+                "count": points[0].get("count", 0)
+            })
+
+    except Exception as e:
+        print("ERROR en top_ports:", e)
+        return {"error": str(e)}
 
     return data
 
 
-# 🔹 eventos recientes
+# ---------------------------
+#   /ports/events
+# ---------------------------
 @app.get("/ports/events")
 def events(limit: int = 100):
 
@@ -81,11 +126,19 @@ def events(limit: int = 100):
     '''
 
     result = query(q)
-
     data = []
 
-    for _, points in result.items():
-        for p in points:
-            data.append(p)
+    try:
+        for _, points in result.items():
+            for p in points:
+                data.append({
+                    "ip": p.get("ip"),
+                    "port": p.get("port"),
+                    "time": p.get("time")
+                })
+
+    except Exception as e:
+        print("ERROR en events:", e)
+        return {"error": str(e)}
 
     return data

@@ -22,6 +22,9 @@ for i in range(200000):
 
     data = f"port_requests,port={port},ip={ip} value=1 {timestamp}"
 
-    requests.post(INFLUX_URL, data=data)
+    try:
+        requests.post(INFLUX_URL, data=data)
+    except:
+        pass
 
-print("Datos generados")
+print("Datos generados correctamente")
